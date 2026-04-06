@@ -586,8 +586,8 @@ const CAMPAIGNS = [
 
 /* ── CONFIG ──────────────────────────────────────── */
 const CFG = {
-  urlResumen: 'https://docs.google.com/spreadsheets/d/18AMPU0r1BzSY_-Mw_g2G4kzrISlYJXFMfx_GrJAXasQ/gviz/tq?tqx=out:csv&sheet=RESUMEN_DIARIO',
-  urlCamps:   'https://docs.google.com/spreadsheets/d/18AMPU0r1BzSY_-Mw_g2G4kzrISlYJXFMfx_GrJAXasQ/gviz/tq?tqx=out:csv&sheet=CAMPANAS_DIARIO'
+  urlResumen: 'https://docs.google.com/spreadsheets/d/18AMPU0r1BzSY_-Mw_g2G4kzrISlYJXFMfx_GrJAXasQ/gviz/tq?tqx=out:csv&sheet=RESUMEN_DIARIO&headers=1',
+  urlCamps:   'https://docs.google.com/spreadsheets/d/18AMPU0r1BzSY_-Mw_g2G4kzrISlYJXFMfx_GrJAXasQ/gviz/tq?tqx=out:csv&sheet=CAMPANAS_DIARIO&headers=1'
 };
 
 /* ── STATE ───────────────────────────────────────── */
@@ -787,9 +787,10 @@ function loadData() {
 
 function syncFromSheets(showAlert) {
   document.getElementById('conn-status').textContent = 'Sincronizando con Sheets...';
+  const fetchOpts = { mode: 'cors', credentials: 'omit' };
   Promise.all([
-    fetch(CFG.urlResumen).then(r => { if(!r.ok) throw new Error('Error RESUMEN'); return r.text(); }),
-    fetch(CFG.urlCamps).then(r   => { if(!r.ok) throw new Error('Error CAMPANAS'); return r.text(); })
+    fetch(CFG.urlResumen, fetchOpts).then(r => { if(!r.ok) throw new Error('HTTP ' + r.status + ' al leer RESUMEN'); return r.text(); }),
+    fetch(CFG.urlCamps,   fetchOpts).then(r => { if(!r.ok) throw new Error('HTTP ' + r.status + ' al leer CAMPANAS'); return r.text(); })
   ]).then(([resumenText, campsText]) => {
     const resRows  = parseCSVText(resumenText);
     const campRows = parseCSVText(campsText);
@@ -846,12 +847,14 @@ function syncFromSheets(showAlert) {
     document.getElementById('resumen-content').style.display = 'block';
     if(showAlert) alert('✓ Sincronizado. ' + newDays.length + ' día(s) desde Sheets.');
   }).catch(err => {
-    document.getElementById('conn-status').textContent = '⚠ Sin conexión a Sheets';
+    const msg = err && err.message ? err.message : String(err);
+    document.getElementById('conn-status').textContent = '⚠ Error: ' + msg;
+    document.getElementById('last-update').textContent = 'Ver consola (F12) para detalles';
     document.getElementById('loading').style.display = 'none';
     document.getElementById('resumen-content').style.display = 'block';
     if(dayData.length === 0) useDemoData();
     renderAll();
-    console.warn('Sheets sync error:', err);
+    console.error('Sheets sync error:', err);
   });
 }
 
