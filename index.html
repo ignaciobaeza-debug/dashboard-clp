@@ -571,8 +571,17 @@ function getFilteredCamps() {
 }
 
 function buildCampData(rows) {
+  // FIX: deduplicar por Fecha+Campaña antes de agregar — evita doble conteo
+  // cuando un día existe tanto en localStorage como en Sheets
+  const seen = new Set();
+  const dedupedRows = rows.filter(r => {
+    const key = (r.Fecha||r.fecha||'') + '|' + (r.Campaña||r.campaña||r.campaign||'');
+    if(seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
   const acc = {};
-  rows.forEach(r => {
+  dedupedRows.forEach(r => {
     const name = r.Campaña || r.campaña || r.campaign || '';
     if(!name) return;
     if(!acc[name]) acc[name] = { inv:0, ing:0, util:0, days:0, statuses:[] };
@@ -755,16 +764,24 @@ function syncFromSheets(showAlert) {
     dayData = [...kept, ...newDays].sort((a,b) => parseDate(a.date) - parseDate(b.date));
 
     const sheetCampDates = new Set(campRows.map(r => r.Fecha || ''));
-    window.rawCampRows = [
-      ...(window.rawCampRows||[]).filter(r => !sheetCampDates.has(r.Fecha||'')),
-      ...campRows.map(r => ({
-        Fecha: r.Fecha, Campaña: r.Campaña,
-        Inversion:    +r.Inversion    || 0,
-        Ingresos_GA4: +r.Ingresos_GA4 || 0,
-        Utilidad:     +r.Utilidad     || 0,
-        Estado:        r.Estado       || 'apta'
-      }))
-    ];
+    // FIX: al recibir datos de Sheets, limpiar TODAS las fechas existentes antes de insertar
+    // para evitar que datos manuales previos dupliquen las filas de campaña
+    const prevRows = (window.rawCampRows||[]).filter(r => !sheetCampDates.has(r.Fecha||''));
+    const newCampRows = campRows.map(r => ({
+      Fecha: r.Fecha, Campaña: r.Campaña,
+      Inversion:    +r.Inversion    || 0,
+      Ingresos_GA4: +r.Ingresos_GA4 || 0,
+      Utilidad:     +r.Utilidad     || 0,
+      Estado:        r.Estado       || 'apta'
+    }));
+    // Deduplicar el resultado final por Fecha+Campaña como capa extra de seguridad
+    const mergedKeys = new Set();
+    window.rawCampRows = [...prevRows, ...newCampRows].filter(r => {
+      const key = (r.Fecha||'') + '|' + (r.Campaña||'');
+      if(mergedKeys.has(key)) return false;
+      mergedKeys.add(key);
+      return true;
+    });
 
     campData = buildCampData(window.rawCampRows);
     saveToStorage(dayData, window.rawCampRows);
@@ -1023,7 +1040,9 @@ function renderAll() {
 function renderKPIs(fDays, fCamps) {
   const totInv  = fDays.reduce((s,d)=>s+d.inversion,0);
   const totIng  = fDays.reduce((s,d)=>s+d.ingresos,0);
-  const totUtil = fCamps.reduce((s,c)=>s+c.util,0);
+  // FIX: RESUMEN_DIARIO es la fuente de verdad de utilidad diaria (calculada desde COMISIONES reales)
+  // fCamps agrega desde CAMPANAS_DIARIO que puede tener duplicados si se mezclan fuentes
+  const totUtil = fDays.reduce((s,d)=>s+d.utilidad,0);
   const totNet  = fDays.reduce((s,d)=>s+d.net,0);
   const roas    = totInv>0 ? (totIng/totInv) : 0;
   const margen  = totIng>0 ? (totUtil/totIng*100) : 0;
@@ -1413,18 +1432,23 @@ function importCSVs() {
     const kept = dayData.filter(d => !importedDates.has(d.date));
     dayData = [...kept, ...newDays].sort((a,b) => parseDate(a.date) - parseDate(b.date));
 
-    // Process camp rows — same merge logic
+    // Process camp rows — FIX: deduplicar por Fecha+Campaña para evitar doble conteo
     const importedCampDates = new Set(campRows.map(r => r.Fecha || ''));
-    window.rawCampRows = [
-      ...(window.rawCampRows || []).filter(r => !importedCampDates.has(r.Fecha || '')),
-      ...campRows.map(r => ({
-        Fecha: r.Fecha, Campaña: r.Campaña,
-        Inversion: +r.Inversion || 0,
-        Ingresos_GA4: +r.Ingresos_GA4 || 0,
-        Utilidad: +r.Utilidad || 0,
-        Estado: r.Estado || 'apta'
-      }))
-    ];
+    const keptCampRows = (window.rawCampRows || []).filter(r => !importedCampDates.has(r.Fecha || ''));
+    const importedCampRows = campRows.map(r => ({
+      Fecha: r.Fecha, Campaña: r.Campaña,
+      Inversion: +r.Inversion || 0,
+      Ingresos_GA4: +r.Ingresos_GA4 || 0,
+      Utilidad: +r.Utilidad || 0,
+      Estado: r.Estado || 'apta'
+    }));
+    const importKeys = new Set();
+    window.rawCampRows = [...keptCampRows, ...importedCampRows].filter(r => {
+      const key = (r.Fecha||'') + '|' + (r.Campaña||'');
+      if(importKeys.has(key)) return false;
+      importKeys.add(key);
+      return true;
+    });
 
     campData = buildCampData(window.rawCampRows);
     saveToStorage(dayData, window.rawCampRows);
