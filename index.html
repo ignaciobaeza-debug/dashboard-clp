@@ -325,8 +325,8 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter:invert(.5); curso
         </div>
         <div class="legend">
           <div class="legend-item"><div class="legend-dot" style="background:#4f8ef7"></div>Inversión</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#2ec27e"></div>Utilidad</div>
-          <div class="legend-item"><div class="legend-dot" style="background:#f0a742"></div>Net</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#2ec27e"></div>Ventas Google</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f0a742"></div>Utilidad real</div>
         </div>
         <div class="chart-wrap" style="height:220px"><canvas id="chartEvol"></canvas></div>
       </div>
@@ -809,17 +809,18 @@ function syncFromSheets(showAlert) {
     }
 
     const newDays = resRows.map(r => ({
-      date:        r.Fecha        || '',
-      inversion:   +r.Inversion   || 0,
-      ingresos:    +r.Ingresos_GA4|| 0,
-      utilidad:    +r.Utilidad    || 0,
-      net:         +r.Net         || 0,
-      clics:       +r.Clics       || 0,
-      impresiones: +r.Impresiones || 0,
-      ctr:         +r.CTR         || 0,
-      usuarios:    +r.Usuarios    || 0,
-      sesiones:    +r.Sesiones    || 0,
-      roas:        +r.ROAS        || 0,
+      date:          r.Fecha          || '',
+      inversion:     +r.Inversion     || 0,
+      ingresos:      +r.Ingresos_GA4  || 0,  // GA4 — solo referencial
+      utilidad:      +r.Utilidad      || 0,
+      ventasGoogle:  +r.Ventas_Google || 0,  // Ventas reales Google Ads (monto bruto comisiones)
+      net:           +r.Net           || 0,
+      clics:         +r.Clics         || 0,
+      impresiones:   +r.Impresiones   || 0,
+      ctr:           +r.CTR           || 0,
+      usuarios:      +r.Usuarios      || 0,
+      sesiones:      +r.Sesiones      || 0,
+      roas:          +r.ROAS          || 0,
     })).filter(d => d.date);
 
     // Sheets tiene prioridad — reemplaza fechas existentes
@@ -873,7 +874,7 @@ function syncFromSheets(showAlert) {
 /* ── DEMO DATA ───────────────────────────────────── */
 function useDemoData() {
   dayData = [
-    { date:'19/03/2026', inversion:170687, ingresos:3481623, utilidad:219035, net:48348, roas:17.1, clics:3040, impresiones:22773, ctr:13.35, usuarios:893, sesiones:1371 }
+    { date:'19/03/2026', inversion:170687, ingresos:3481623, utilidad:219035, ventasGoogle:0, net:48348, roas:17.1, clics:3040, impresiones:22773, ctr:13.35, usuarios:893, sesiones:1371 }
   ];
   const demoCamps = [
     { Fecha:'19/03/2026', Campaña:'CLP-Brand-Always-On',     Inversion:59257,  Ingresos_GA4:96700,  Utilidad:115527, Estado:'apta' },
@@ -1102,16 +1103,17 @@ function renderAll() {
 
 /* ── KPIs ────────────────────────────────────────── */
 function renderKPIs(fDays, fCamps) {
-  // Fuente de verdad: RESUMEN_DIARIO (utilidad calculada desde comisiones reales)
-  const totInv  = fDays.reduce((s,d)=>s+d.inversion,0);
-  const totIng  = fDays.reduce((s,d)=>s+d.ingresos,0);   // GA4 — solo referencial
-  const totVentas = fDays.reduce((s,d)=>s+d.utilidad,0); // Ventas reales (comisiones)
-  const totNet  = totVentas - totInv;
+  // Fuentes de datos
+  const totInv      = fDays.reduce((s,d)=>s+d.inversion,0);
+  const totIng      = fDays.reduce((s,d)=>s+d.ingresos,0);      // GA4 — solo referencial
+  const totVentas   = fDays.reduce((s,d)=>s+(d.ventasGoogle||0),0); // Ventas reales Google Ads (monto bruto)
+  const totUtilidad = fDays.reduce((s,d)=>s+d.utilidad,0);      // Utilidad real (comisiones)
+  const totNet      = totVentas - totInv;
 
-  // ROAS = Ventas reales / Inversión
+  // ROAS = Ventas reales (monto bruto Google Ads) / Inversión
   const roas = totInv > 0 ? totVentas / totInv : 0;
-  // ROI  = Utilidad / Inversión  (aquí Utilidad = Ventas reales, según definición acordada)
-  const roi  = totInv > 0 ? (totVentas / totInv) * 100 : 0;
+  // ROI  = Utilidad real / Inversión × 100%
+  const roi  = totInv > 0 ? (totUtilidad / totInv) * 100 : 0;
   // ROAS GA4 referencial
   const roasGA4 = totInv > 0 ? totIng / totInv : 0;
 
@@ -1121,7 +1123,7 @@ function renderKPIs(fDays, fCamps) {
   document.getElementById('k-inv-chip').textContent = dayData.length + ' días';
 
   document.getElementById('k-util').textContent   = CLP(totVentas);
-  document.getElementById('k-margen-chip').textContent = 'Net ' + CLP(totNet);
+  document.getElementById('k-margen-chip').textContent = totVentas > 0 ? 'Util. ' + CLP(totUtilidad) : 'Sin dato';
 
   const netEl = document.getElementById('k-net');
   netEl.textContent  = CLP(totNet);
@@ -1164,29 +1166,29 @@ function renderKPIs(fDays, fCamps) {
   document.getElementById('roas-chip').className   = 'chip ' + (roas >= 1 ? 'chip-green' : 'chip-red');
 
   /* — Utilidad page — */
-  const net = totVentas - totInv;
+  const netUtil = totUtilidad - totInv;
   document.getElementById('u-inv').textContent    = CLP(totInv);
-  document.getElementById('u-real').textContent   = CLP(totVentas);
-  document.getElementById('u-diff').textContent   = CLP(net);
-  document.getElementById('u-diff').style.color   = net >= 0 ? 'var(--green)' : 'var(--red)';
-  document.getElementById('u-diff-pct').textContent = 'Ventas reales − Inversión';
+  document.getElementById('u-real').textContent   = CLP(totUtilidad);
+  document.getElementById('u-diff').textContent   = CLP(netUtil);
+  document.getElementById('u-diff').style.color   = netUtil >= 0 ? 'var(--green)' : 'var(--red)';
+  document.getElementById('u-diff-pct').textContent = 'Utilidad − Inversión';
   document.getElementById('u-roas-real').textContent = roas.toFixed(2) + 'x';
   document.getElementById('u-roas-real').style.color = roas >= 1 ? 'var(--green)' : 'var(--red)';
 }
 
 /* ── EVOL CHART ──────────────────────────────────── */
 function renderEvolChart(fDays) {
-  const labels  = fDays.map(d=>d.date.slice(0,5));
-  const invData = fDays.map(d=>d.inversion);
-  const utData  = fDays.map(d=>d.utilidad);
-  const netData = fDays.map(d=>d.net);
+  const labels   = fDays.map(d=>d.date.slice(0,5));
+  const invData  = fDays.map(d=>d.inversion);
+  const vgData   = fDays.map(d=>d.ventasGoogle||0);
+  const utilData = fDays.map(d=>d.utilidad);
   if(charts.evol) charts.evol.destroy();
   charts.evol = new Chart(document.getElementById('chartEvol'), {
     type:'line',
     data:{ labels, datasets:[
-      {label:'Inversión', data:invData, borderColor:'#4f8ef7', tension:.35, pointRadius:4, fill:false},
-      {label:'Utilidad',  data:utData,  borderColor:'#2ec27e', tension:.35, pointRadius:4, fill:false},
-      {label:'Net',       data:netData, borderColor:'#f0a742', tension:.35, pointRadius:4, fill:false},
+      {label:'Inversión',      data:invData,  borderColor:'#4f8ef7', tension:.35, pointRadius:3, fill:false},
+      {label:'Ventas Google',  data:vgData,   borderColor:'#2ec27e', tension:.35, pointRadius:3, fill:false},
+      {label:'Utilidad real',  data:utilData, borderColor:'#f0a742', tension:.35, pointRadius:3, fill:false, borderDash:[4,3]},
     ]},
     options:{ responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false} },
@@ -1584,17 +1586,18 @@ function importCSVs() {
 
     // Process resumen rows
     const newDays = resRows.map(r => ({
-      date:        r.Fecha || '',
-      inversion:   +r.Inversion   || 0,
-      ingresos:    +r.Ingresos_GA4 || 0,
-      utilidad:    +r.Utilidad    || 0,
-      net:         +r.Net         || 0,
-      clics:       +r.Clics       || 0,
-      impresiones: +r.Impresiones || 0,
-      ctr:         +r.CTR         || 0,
-      usuarios:    +r.Usuarios    || 0,
-      sesiones:    +r.Sesiones    || 0,
-      roas:        +r.ROAS        || 0,
+      date:         r.Fecha        || '',
+      inversion:    +r.Inversion   || 0,
+      ingresos:     +r.Ingresos_GA4 || 0,
+      utilidad:     +r.Utilidad    || 0,
+      ventasGoogle: +r.Ventas_Google || 0,
+      net:          +r.Net         || 0,
+      clics:        +r.Clics       || 0,
+      impresiones:  +r.Impresiones || 0,
+      ctr:          +r.CTR         || 0,
+      usuarios:     +r.Usuarios    || 0,
+      sesiones:     +r.Sesiones    || 0,
+      roas:         +r.ROAS        || 0,
     })).filter(d => d.date);
 
     // Merge: replace existing dates, keep new ones
